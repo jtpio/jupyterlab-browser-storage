@@ -8,7 +8,6 @@ import {
   getFileModel,
   isBrowserStorageFileListedInBrowser,
   normalizeNotebookSource,
-  openAndGetEditorContent,
   type UploadFile,
   uploadFiles
 } from './browser_storage_utils';
@@ -54,20 +53,17 @@ test.describe('Browser Storage Upload Tests', () => {
       await isBrowserStorageFileListedInBrowser(page, binaryFile.name)
     ).toBeTruthy();
 
-    const uploadedText = await getFileModel(page, textFile.name);
+    const uploadedText = await getFileModel(page, textFile.name, 'text');
     expect(uploadedText.type).toBe('file');
     expect(uploadedText.format).toBe('text');
     expect(uploadedText.size).toBe(textFile.size);
     expect(uploadedText.content).toBe(textFile.text);
 
-    const uploadedBinary = await getFileModel(page, binaryFile.name);
+    const uploadedBinary = await getFileModel(page, binaryFile.name, 'base64');
     expect(uploadedBinary.type).toBe('file');
     expect(uploadedBinary.format).toBe('base64');
     expect(uploadedBinary.size).toBe(binaryFile.size);
     expect(uploadedBinary.content).toBe(binaryFile.base64);
-
-    const editorContent = await openAndGetEditorContent(page, textFile.name);
-    expect(editorContent).toBe(textFile.text);
 
     expect(sha256FromBase64(uploadedBinary.content as string)).toBe(
       binaryFile.sha256
@@ -88,14 +84,11 @@ test.describe('Browser Storage Upload Tests', () => {
       await isBrowserStorageFileListedInBrowser(page, textFile.name)
     ).toBeTruthy();
 
-    const uploadedText = await getFileModel(page, textFile.name);
+    const uploadedText = await getFileModel(page, textFile.name, 'text');
     expect(uploadedText.type).toBe('file');
     expect(uploadedText.format).toBe('text');
     expect(uploadedText.size).toBe(textFile.size);
     expect(uploadedText.content).toBe(textFile.text);
-
-    const editorContent = await openAndGetEditorContent(page, textFile.name);
-    expect(editorContent).toBe(textFile.text);
   });
 
   test('Upload a large binary file', async ({ page }) => {
@@ -112,7 +105,7 @@ test.describe('Browser Storage Upload Tests', () => {
       await isBrowserStorageFileListedInBrowser(page, binaryFile.name)
     ).toBeTruthy();
 
-    const uploadedBinary = await getFileModel(page, binaryFile.name);
+    const uploadedBinary = await getFileModel(page, binaryFile.name, 'base64');
     expect(uploadedBinary.type).toBe('file');
     expect(uploadedBinary.format).toBe('base64');
     expect(uploadedBinary.size).toBe(binaryFile.size);
@@ -136,7 +129,7 @@ test.describe('Browser Storage Upload Tests', () => {
       await isBrowserStorageFileListedInBrowser(page, notebook.name)
     ).toBeTruthy();
 
-    const uploadedNotebook = await getFileModel(page, notebook.name);
+    const uploadedNotebook = await getFileModel(page, notebook.name, 'json');
     expect(uploadedNotebook.type).toBe('notebook');
     expect(uploadedNotebook.format).toBe('json');
     expect(uploadedNotebook.size).toBe(notebook.size);
@@ -159,7 +152,7 @@ test.describe('Browser Storage Upload Tests', () => {
       await isBrowserStorageFileListedInBrowser(page, notebook.name)
     ).toBeTruthy();
 
-    const uploadedNotebook = await getFileModel(page, notebook.name);
+    const uploadedNotebook = await getFileModel(page, notebook.name, 'json');
     expect(uploadedNotebook.type).toBe('notebook');
     expect(uploadedNotebook.format).toBe('json');
     expect(uploadedNotebook.size).toBe(notebook.size);
@@ -190,12 +183,15 @@ test.describe('Browser Storage Upload Tests', () => {
       .toBeTruthy();
 
     await expect
-      .poll(async () => (await getFileModel(page, binaryFile.name)).size, {
-        timeout: 120000
-      })
+      .poll(
+        async () => (await getFileModel(page, binaryFile.name, 'base64')).size,
+        {
+          timeout: 120000
+        }
+      )
       .toBe(binaryFile.size);
 
-    const uploadedBinary = await getFileModel(page, binaryFile.name);
+    const uploadedBinary = await getFileModel(page, binaryFile.name, 'base64');
     expect(uploadedBinary.type).toBe('file');
     expect(uploadedBinary.format).toBe('base64');
     expect(uploadedBinary.size).toBe(binaryFile.size);

@@ -6,8 +6,9 @@ import {
   clearBrowserStorageDrive,
   createBrowserStorageDirectory,
   deleteBrowserStoragePath,
-  getBrowserStorageItems,
-  getNotebookSource
+  getNotebookSource,
+  isBrowserStorageFileListedInBrowser,
+  openBrowserStorageItem
 } from './browser_storage_utils';
 
 async function createNotebook(
@@ -97,6 +98,22 @@ async function createCustomJsonFile(
   );
 }
 
+async function dismissKernelDialog(
+  page: IJupyterLabPageFixture
+): Promise<void> {
+  const kernelDialog = page.locator('.jp-Dialog');
+  const noKernelButton = kernelDialog.getByRole('button', {
+    name: 'No Kernel'
+  });
+
+  try {
+    await noKernelButton.click({ timeout: 5000 });
+    await expect(kernelDialog).toBeHidden();
+  } catch {
+    // The notebook may already be open without prompting for a kernel.
+  }
+}
+
 test.describe('Browser Storage Contents', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto();
@@ -110,14 +127,16 @@ test.describe('Browser Storage Contents', () => {
     const notebookPath = await createNotebook(page, source);
     const notebookName = notebookPath.split(':')[1];
 
-    let items = await getBrowserStorageItems(page);
-    expect(items.map(item => item.name)).toContain(notebookName);
+    expect(
+      await isBrowserStorageFileListedInBrowser(page, notebookName)
+    ).toBeTruthy();
 
     await page.reload();
     await page.waitForSelector('.jp-Launcher');
 
-    items = await getBrowserStorageItems(page);
-    expect(items.map(item => item.name)).toContain(notebookName);
+    expect(
+      await isBrowserStorageFileListedInBrowser(page, notebookName)
+    ).toBeTruthy();
     expect(await getNotebookSource(page, notebookPath)).toBe(source);
   });
 
@@ -126,26 +145,43 @@ test.describe('Browser Storage Contents', () => {
   }) => {
     const notebookPath = await createNotebook(page, '## initial source');
     const updatedSource = '## saved from notebook panel';
+    const selectAllShortcut =
+      process.platform === 'darwin' ? 'Meta+A' : 'Control+A';
 
-    await page.evaluate(async path => {
-      const app = (window as any).galata.app;
-      await app.commands.execute('docmanager:open', { path });
-    }, notebookPath);
-
+    await openBrowserStorageItem(page, notebookPath);
     await page.waitForSelector('.jp-NotebookPanel');
+    await dismissKernelDialog(page);
 
-    await page.evaluate(source => {
-      const app = (window as any).galata.app;
-      const panel = app.shell.currentWidget as any;
-      panel.content.model.cells.get(0).sharedModel.setSource(source);
-    }, updatedSource);
+    await page.notebook.enterCellEditingMode(0);
+    const cellEditor = page
+      .locator('.jp-NotebookPanel .jp-Cell')
+      .first()
+      .getByRole('textbox');
+    await expect(cellEditor).toBeVisible();
+    await cellEditor.click();
+    await page.keyboard.press(selectAllShortcut);
+    await page.keyboard.press('Backspace');
+    await page.keyboard.insertText(updatedSource);
+    await page.keyboard.press('Escape');
 
     await page
       .getByRole('button', { name: /Save and create checkpoint/ })
       .click();
-    await expect
-      .poll(() => getNotebookSource(page, notebookPath))
-      .toBe(updatedSource);
+
+    const notebookName = notebookPath.split(':')[1];
+    const notebookTab = page.getByRole('tab', { name: notebookName });
+    await notebookTab.locator('.lm-TabBar-tabCloseIcon').click();
+    await expect(page.getByRole('tab', { name: notebookName })).toHaveCount(0);
+
+    await openBrowserStorageItem(page, notebookPath);
+    await page.waitForSelector('.jp-NotebookPanel');
+    await dismissKernelDialog(page);
+
+    await expect(
+      page
+        .locator('.jp-NotebookPanel')
+        .getByRole('heading', { name: 'saved from notebook panel' })
+    ).toBeVisible();
   });
 
   test('creates a BrowserStorage notebook and deletes it', async ({ page }) => {
@@ -153,20 +189,14 @@ test.describe('Browser Storage Contents', () => {
     const notebookName = notebookPath.split(':')[1];
 
     expect(await getNotebookSource(page, notebookPath)).toBe('## delete me');
-    expect(await getBrowserStorageItems(page)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: notebookName, path: notebookPath })
-      ])
-    );
+    expect(
+      await isBrowserStorageFileListedInBrowser(page, notebookName)
+    ).toBeTruthy();
 
     await deleteBrowserStoragePath(page, notebookPath);
 
     await expect
-      .poll(() =>
-        getBrowserStorageItems(page).then(items =>
-          items.some(item => item.name === notebookName)
-        )
-      )
+      .poll(() => isBrowserStorageFileListedInBrowser(page, notebookName))
       .toBe(false);
   });
 
@@ -188,20 +218,14 @@ test.describe('Browser Storage Contents', () => {
       });
     }, nestedPath);
 
-    expect(await getBrowserStorageItems(page)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: directoryName, path: directoryPath })
-      ])
-    );
+    expect(
+      await isBrowserStorageFileListedInBrowser(page, directoryName)
+    ).toBeTruthy();
 
     await deleteBrowserStoragePath(page, directoryPath);
 
     await expect
-      .poll(() =>
-        getBrowserStorageItems(page).then(items =>
-          items.some(item => item.name === directoryName)
-        )
-      )
+      .poll(() => isBrowserStorageFileListedInBrowser(page, directoryName))
       .toBe(false);
   });
 
